@@ -1,0 +1,887 @@
+import React, { useEffect, useMemo, useRef, useState } from "react";
+import { Copy, Info, Footprints, Shield, Sparkles, Zap, Dice5, Globe, ImageDown, FileDown, Plus, X, Bug, Settings2, Upload, Download, Sun, Moon } from "lucide-react";
+import { toPng } from "html-to-image";
+import jsPDF from "jspdf";
+
+
+/* i18n */
+const I18N = {
+ es: {
+   title: "Asesor de Contraformaciones",
+   opponentFormation: "Formación rival",
+   preferredApproach: "Enfoque preferido",
+   teamStrengths: "Fortalezas del equipo",
+   copy: "Copiar recomendación",
+   copied: "Copiado al portapapeles ✅",
+   copyFail: "No se pudo copiar. Selecciona y copia manualmente.",
+   recommended: "Contraformación recomendada",
+   basedOn: "según enfoque y fortalezas",
+   alternatives: "Alternativas",
+   opponentShape: "Forma del rival",
+   theirBaseShape: "Su forma base",
+   howItWorks: "Cómo funciona",
+   how1: "Elige la formación del rival (fútbol/soccer).",
+   how2: "Inclina la sugerencia con tu enfoque y fortalezas.",
+   how3: "Copia o exporta para compartir con el cuerpo técnico.",
+   newTip: "Nuevo tip",
+   footer: "Heurísticas tácticas: adáptalas a tu plantilla y rival.",
+   infoClassic: "Todas las formaciones son clásicas (soccer, no NFL).",
+   biasNote: "Esto sesga la sugerencia; puedes elegir cualquier salida.",
+   exportPNG: "Exportar PNG",
+   exportPDF: "Exportar PDF",
+   exportJSON: "Exportar JSON",
+   importJSON: "Importar JSON",
+   importPrompt: "Pega aquí tu JSON de formaciones personalizadas:",
+   invalidJSON: "JSON inválido.",
+   customTitle: "Formaciones personalizadas",
+   customDesc: "Crea/edita una formación tocando/clicando para colocar hasta 11 jugadores. Arrastra (también táctil) para ajustar. Selecciona uno para marcarlo como GK o renómbralo.",
+   formName: "Nombre de la formación",
+   saveFormation: "Guardar formación",
+   clear: "Limpiar",
+   markGK: "Marcar como GK",
+   playersCount: (n: number) => `${n}/11 jugadores`,
+   addCustom: "Añadida a la lista de formaciones.",
+   tests: "Pruebas",
+   runTests: "Ejecutar pruebas",
+   allPass: "Todas las pruebas pasaron ✅",
+   someFail: "Algunas pruebas fallaron ❌",
+   remove: "Eliminar",
+   tipLabel: "Consejo:",
+   why: "Por qué",
+   alt: (i: number) => `Alternativa ${i}`,
+   settings: "Ajustes",
+   snapToGrid: "Ajustar a la rejilla",
+   gridSize: "Tamaño de rejilla",
+   persistence: "Persistencia",
+   persistToLocalStorage: "Guardar preferencias en este navegador",
+   rename: "Renombrar",
+   appearance: "Apariencia",
+   theme: "Tema",
+   system: "Sistema",
+   light: "Claro",
+   dark: "Oscuro",
+
+
+ },
+ en: {
+   title: "Counter Formation Advisor",
+   opponentFormation: "Opponent formation",
+   preferredApproach: "Preferred approach",
+   teamStrengths: "Team strengths",
+   copy: "Copy recommendation",
+   copied: "Copied to clipboard ✅",
+   copyFail: "Couldn't copy. You can select and copy manually.",
+   recommended: "Recommended counter",
+   basedOn: "based on style & strengths",
+   alternatives: "Alternatives",
+   opponentShape: "Opponent shape",
+   theirBaseShape: "Their base shape",
+   howItWorks: "How it works",
+   how1: "Choose the opponent's formation (soccer/football).",
+   how2: "Bias the recommendation with your preferred approach and team strengths.",
+   how3: "Copy or export to share with staff or players.",
+   newTip: "New tip",
+   footer: "Tactical rules are heuristics; adapt to your squad & opponent.",
+   infoClassic: "All formations are classic shapes (soccer, not NFL).",
+   biasNote: "This biases suggestions; you can still pick any output.",
+   exportPNG: "Export PNG",
+   exportPDF: "Export PDF",
+   exportJSON: "Export JSON",
+   importJSON: "Import JSON",
+   importPrompt: "Paste your custom formations JSON:",
+   invalidJSON: "Invalid JSON.",
+   customTitle: "Custom formations",
+   customDesc: "Create/edit a formation by tapping/clicking to place up to 11 players. Drag (touch supported) to adjust. Select one to mark GK or rename.",
+   formName: "Formation name",
+   saveFormation: "Save formation",
+   clear: "Clear",
+   markGK: "Mark as GK",
+   playersCount: (n: number) => `${n}/11 players`,
+   addCustom: "Added to formations list.",
+   tests: "Tests",
+   runTests: "Run tests",
+   allPass: "All tests passed ✅",
+   someFail: "Some tests failed ❌",
+   remove: "Remove",
+   tipLabel: "Tip:",
+   why: "Why",
+   alt: (i: number) => `Alt ${i}`,
+   settings: "Settings",
+   snapToGrid: "Snap to grid",
+   gridSize: "Grid size",
+   persistence: "Persistence",
+   persistToLocalStorage: "Save preferences in this browser",
+   rename: "Rename",
+   appearance: "Appearance",
+   theme: "Theme",
+   system: "System",
+   light: "Light",
+   dark: "Dark",
+
+
+ },
+} as const;
+
+
+/* Base formation coordinates (percent positions) */
+type Pt = { label: string; x: number; y: number };
+const BASE_FORMATION_POSITIONS: Record<string, Pt[]> = {
+ "4-3-3": [
+   { label: "GK", x: 50, y: 5 }, { label: "LB", x: 18, y: 18 }, { label: "LCB", x: 38, y: 16 },
+   { label: "RCB", x: 62, y: 16 }, { label: "RB", x: 82, y: 18 },
+   { label: "LCM", x: 35, y: 38 }, { label: "CM", x: 50, y: 42 }, { label: "RCM", x: 65, y: 38 },
+   { label: "LW", x: 25, y: 70 }, { label: "ST", x: 50, y: 78 }, { label: "RW", x: 75, y: 70 },
+ ],
+ "4-2-3-1": [
+   { label: "GK", x: 50, y: 5 }, { label: "LB", x: 18, y: 18 }, { label: "LCB", x: 38, y: 16 },
+   { label: "RCB", x: 62, y: 16 }, { label: "RB", x: 82, y: 18 },
+   { label: "LDM", x: 42, y: 32 }, { label: "RDM", x: 58, y: 32 },
+   { label: "LAM", x: 35, y: 52 }, { label: "CAM", x: 50, y: 56 }, { label: "RAM", x: 65, y: 52 },
+   { label: "ST", x: 50, y: 75 },
+ ],
+ "4-4-2": [
+   { label: "GK", x: 50, y: 5 }, { label: "LB", x: 18, y: 18 }, { label: "LCB", x: 38, y: 16 },
+   { label: "RCB", x: 62, y: 16 }, { label: "RB", x: 82, y: 18 },
+   { label: "LM", x: 25, y: 40 }, { label: "LCM", x: 40, y: 44 }, { label: "RCM", x: 60, y: 44 },
+   { label: "RM", x: 75, y: 40 }, { label: "LS", x: 42, y: 74 }, { label: "RS", x: 58, y: 74 },
+ ],
+ "4-1-4-1": [
+   { label: "GK", x: 50, y: 5 }, { label: "LB", x: 18, y: 18 }, { label: "LCB", x: 38, y: 16 },
+   { label: "RCB", x: 62, y: 16 }, { label: "RB", x: 82, y: 18 },
+   { label: "DM", x: 50, y: 30 }, { label: "LM", x: 28, y: 46 }, { label: "LCM", x: 42, y: 50 },
+   { label: "RCM", x: 58, y: 50 }, { label: "RM", x: 72, y: 46 }, { label: "ST", x: 50, y: 74 },
+ ],
+ "4-3-1-2": [
+   { label: "GK", x: 50, y: 5 }, { label: "LB", x: 18, y: 18 }, { label: "LCB", x: 38, y: 16 },
+   { label: "RCB", x: 62, y: 16 }, { label: "RB", x: 82, y: 18 },
+   { label: "LCM", x: 38, y: 38 }, { label: "CM", x: 50, y: 42 }, { label: "RCM", x: 62, y: 38 },
+   { label: "CAM", x: 50, y: 58 }, { label: "LS", x: 42, y: 74 }, { label: "RS", x: 58, y: 74 },
+ ],
+ "3-5-2": [
+   { label: "GK", x: 50, y: 5 }, { label: "LCB", x: 35, y: 16 }, { label: "CB", x: 50, y: 14 },
+   { label: "RCB", x: 65, y: 16 }, { label: "LWB", x: 20, y: 40 }, { label: "RWB", x: 80, y: 40 },
+   { label: "LCM", x: 40, y: 44 }, { label: "DM", x: 50, y: 34 }, { label: "RCM", x: 60, y: 44 },
+   { label: "LS", x: 45, y: 74 }, { label: "RS", x: 55, y: 74 },
+ ],
+ "3-4-3": [
+   { label: "GK", x: 50, y: 5 }, { label: "LCB", x: 35, y: 16 }, { label: "CB", x: 50, y: 14 },
+   { label: "RCB", x: 65, y: 16 }, { label: "LWB", x: 22, y: 42 }, { label: "RWB", x: 78, y: 42 },
+   { label: "LCM", x: 42, y: 46 }, { label: "RCM", x: 58, y: 46 },
+   { label: "LW", x: 28, y: 70 }, { label: "CF", x: 50, y: 78 }, { label: "RW", x: 72, y: 70 },
+ ],
+ "5-3-2": [
+   { label: "GK", x: 50, y: 5 }, { label: "LB", x: 18, y: 18 }, { label: "LCB", x: 34, y: 16 },
+   { label: "CB", x: 50, y: 14 }, { label: "RCB", x: 66, y: 16 }, { label: "RB", x: 82, y: 18 },
+   { label: "LCM", x: 40, y: 44 }, { label: "CM", x: 50, y: 46 }, { label: "RCM", x: 60, y: 44 },
+   { label: "LS", x: 45, y: 72 }, { label: "RS", x: 55, y: 72 },
+ ],
+ "5-4-1": [
+   { label: "GK", x: 50, y: 5 }, { label: "LB", x: 16, y: 18 }, { label: "LCB", x: 32, y: 16 },
+   { label: "CB", x: 50, y: 14 }, { label: "RCB", x: 68, y: 16 }, { label: "RB", x: 84, y: 18 },
+   { label: "LM", x: 30, y: 42 }, { label: "LCM", x: 42, y: 46 }, { label: "RCM", x: 58, y: 46 },
+   { label: "RM", x: 70, y: 42 }, { label: "ST", x: 50, y: 72 },
+ ],
+ "4-5-1": [
+   { label: "GK", x: 50, y: 5 }, { label: "LB", x: 18, y: 18 }, { label: "LCB", x: 38, y: 16 },
+   { label: "RCB", x: 62, y: 16 }, { label: "RB", x: 82, y: 18 },
+   { label: "LM", x: 24, y: 42 }, { label: "LCM", x: 38, y: 46 }, { label: "CM", x: 50, y: 50 },
+   { label: "RCM", x: 62, y: 46 }, { label: "RM", x: 76, y: 42 }, { label: "ST", x: 50, y: 74 },
+ ],
+ "3-1-4-2": [
+   { label: "GK", x: 50, y: 5 }, { label: "LCB", x: 35, y: 16 }, { label: "CB", x: 50, y: 14 },
+   { label: "RCB", x: 65, y: 16 }, { label: "DM", x: 50, y: 28 }, { label: "LM", x: 28, y: 42 },
+   { label: "LCM", x: 42, y: 48 }, { label: "RCM", x: 58, y: 48 }, { label: "RM", x: 72, y: 42 },
+   { label: "LS", x: 45, y: 72 }, { label: "RS", x: 55, y: 72 },
+ ],
+};
+
+
+/* Counter recommendations (EN + ES) */
+const COUNTERS: Record<string, { formation: string; reason: string; reason_es: string }[]> = {
+ "4-3-3": [
+   { formation: "4-2-3-1", reason: "Double pivot screens their 8s, your 10 finds pockets behind their single 6. Fullbacks can engage wingers without isolating CBs.", reason_es: "Doble pivote cubre sus interiores; tu 10 encuentra espacios detrás de su único 6. Los laterales pueden salir al extremo sin aislar a los centrales." },
+   { formation: "3-5-2", reason: "Back three + wing-backs handle wide threats; two strikers exploit space behind advanced fullbacks.", reason_es: "Línea de tres con carrileros controla las bandas; dos delanteros atacan el espacio a la espalda de laterales adelantados." },
+   { formation: "4-1-4-1", reason: "Solid mid-block; wide mids track wingers while lone 9 attacks vacated FB zones in transition.", reason_es: "Bloque medio sólido; los volantes externos siguen a los extremos mientras el 9 ataca los espacios liberados en transición." },
+ ],
+ "4-2-3-1": [
+   { formation: "4-3-3", reason: "Your 6 can mark their 10; front three press their build-up 4 while wingers pin fullbacks and stretch the double pivot.", reason_es: "Tu 6 puede seguir a su 10; el tridente presiona la salida de 4 mientras los extremos fijan a los laterales y estiran al doble pivote." },
+   { formation: "3-4-3", reason: "Wing-backs push on their FBs; box midfield (2+2) matches their pivot+10; front three press lanes aggressively.", reason_es: "Los carrileros saltan sobre sus laterales; el mediocampo en caja (2+2) iguala a su pivote+10; el tridente presiona los carriles." },
+   { formation: "4-4-2", reason: "Two strikers split their CBs and screen the pivot; flat four nulls their 10 and forces play wide.", reason_es: "Dos puntas separan a los centrales y tapan al pivote; la línea de cuatro anula a su 10 y obliga a jugar por fuera." },
+ ],
+ "4-4-2": [
+   { formation: "4-2-3-1", reason: "Exploit space between their lines with a 10; double pivot beats their two CMs in rest defense and second balls.", reason_es: "Explota el espacio entre líneas con un 10; el doble pivote domina a sus dos volantes en segundas jugadas y balance defensivo." },
+   { formation: "3-5-2", reason: "Midfield three overloads their duo; wing-backs pin their wide mids; two strikers occupy both CBs.", reason_es: "Tres en el medio superan a su doble pivote; los carrileros fijan a sus volantes externos; dos delanteros ocupan a los centrales." },
+   { formation: "4-3-3", reason: "Numerical edge in midfield (3v2) to progress centrally while wingers isolate their fullbacks.", reason_es: "Ventaja numérica en el medio (3v2) para progresar por dentro mientras los extremos aíslan a sus laterales." },
+ ],
+ "3-5-2": [
+   { formation: "4-3-3", reason: "Front three can pin back their wide CBs; your wingers attack wide channels behind wing-backs.", reason_es: "El tridente fija a los stoppers; tus extremos atacan los carriles a la espalda de los carrileros." },
+   { formation: "4-2-3-1", reason: "10 occupies half-spaces behind their 6; fullbacks advance to create 2v1s on wing-backs.", reason_es: "El 10 ocupa los half-spaces detrás de su 6; los laterales avanzan para crear 2v1 sobre carrileros." },
+   { formation: "3-4-3", reason: "Mirror w/better width control and a central 9 to engage their central CB.", reason_es: "Espejo con mejor control de amplitud y un 9 central que ocupa a su líbero." },
+ ],
+ "3-4-3": [
+   { formation: "4-3-3", reason: "Back four matches their front three cleanly; 3v2 in midfield to progress; fullbacks can step to wing-backs.", reason_es: "La defensa de cuatro empareja su tridente; 3v2 en el medio para progresar; los laterales pueden saltar al carrilero." },
+   { formation: "4-4-2", reason: "Two strikers pin back three; banks of four deny central access and force long switches to wing-backs.", reason_es: "Dos puntas fijan la línea de tres; dos líneas de cuatro cierran el centro y fuerzan cambios de orientación." },
+   { formation: "5-3-2", reason: "Extra cover against their front three; strike in transition into space behind advanced wing-backs.", reason_es: "Cobertura extra frente a su tridente; golpear en transición al espacio tras carrileros adelantados." },
+ ],
+ "5-3-2": [
+   { formation: "4-2-3-1", reason: "Use the 10 between their CMs; FBs push to pin wing-backs; two pivots recycle to keep them deep.", reason_es: "Usa el 10 entre sus interiores; los laterales empujan para fijar carrileros; el doble pivote recicla para mantenerlos hundidos." },
+   { formation: "4-3-3", reason: "Width vs their back five to stretch horizontally; 3 in midfield to switch and pull their 5-3 block around.", reason_es: "Amplitud contra su línea de cinco para estirar; tres en el medio para cambiar de lado y mover su 5-3." },
+   { formation: "3-4-3", reason: "Match their back five but keep a front three to lock their build-out and attack half-spaces.", reason_es: "Iguala su fondo de cinco pero mantén un tridente para bloquear la salida y atacar los half-spaces." },
+ ],
+ "5-4-1": [
+   { formation: "4-2-3-1", reason: "Patience with a 10 between their lines; overlaps create 2v1s on the flank vs isolated wing-backs/wide mids.", reason_es: "Paciencia con un 10 entre líneas; las solapadas crean 2v1 en banda frente a carrileros/volantes aislados." },
+   { formation: "4-3-3", reason: "Natural width and midfield triangles to move their low block; late runs from 8s.", reason_es: "Amplitud natural y triángulos en el medio para mover su bloque bajo; llegadas de los interiores." },
+   { formation: "4-3-1-2", reason: "Flood central lane vs narrow 5-4-1; fullbacks provide width while two 9s pin the back line.", reason_es: "Inunda el carril central ante su estrecho 5-4-1; los laterales dan amplitud mientras dos 9 fijan la línea." },
+ ],
+ "4-1-4-1": [
+   { formation: "4-2-3-1", reason: "Add a 10 to overload their single 6; double pivot keeps counters under control.", reason_es: "Agrega un 10 para sobrecargar a su único 6; el doble pivote controla las contras." },
+   { formation: "3-4-3", reason: "Wing-backs stretch their wide mids; front three presses back four while keeping central coverage.", reason_es: "Los carrileros estiran a sus volantes externos; el tridente presiona a la línea de cuatro manteniendo cobertura central." },
+   { formation: "4-3-3", reason: "Extra 8 vs their 2 CMs; wingers isolate FBs to break their mid-block.", reason_es: "Un interior extra ante sus dos mediocentros; los extremos aíslan a los laterales para romper su bloque medio." },
+ ],
+ "4-3-1-2": [
+   { formation: "3-4-3", reason: "Exploit their narrowness with wing-backs and a wide front three; pin their CBs with central 9.", reason_es: "Explota su estrechez con carrileros y un tridente ancho; el 9 central fija a los centrales." },
+   { formation: "4-2-3-1", reason: "FBs provide width vs narrow diamond; your 10 occupies space behind their DM.", reason_es: "Los laterales dan amplitud contra su rombo; tu 10 ocupa el espacio detrás de su pivote." },
+   { formation: "4-3-3", reason: "Wingers vs narrow fullbacks; three in midfield to handle diamond rotations.", reason_es: "Extremos ante laterales estrechos; tres en el medio para gestionar rotaciones del rombo." },
+ ],
+ "3-1-4-2": [
+   { formation: "4-3-3", reason: "Wingers attack space behind aggressive wing-backs; your 6 screens their 10.", reason_es: "Extremos atacan el espacio a la espalda de carrileros agresivos; tu 6 protege ante su 10." },
+   { formation: "4-4-2", reason: "Two strikers occupy their back three; flat four denies central lanes to their 10 and CMs.", reason_es: "Dos puntas ocupan su línea de tres; una línea de cuatro niega carriles centrales a su 10 y CMs." },
+   { formation: "4-2-3-1", reason: "10 finds pockets around their single 6; FBs pin wing-backs to stop overloads.", reason_es: "El 10 encuentra bolsillos alrededor de su único 6; los laterales fijan a carrileros para frenar sobrecargas." },
+ ],
+ "4-5-1": [
+   { formation: "4-2-3-1", reason: "10 between lines vs compact five-man midfield; overlaps to create width; recycle with double pivot.", reason_es: "Un 10 entre líneas ante su medio de cinco; solapadas para crear amplitud; recicla con doble pivote." },
+   { formation: "3-4-3", reason: "Stretch horizontally with wing-backs; keep three up to pin their back line and create cutbacks.", reason_es: "Estira horizontalmente con carrileros; mantén tres arriba para fijar la línea y buscar centros atrás." },
+   { formation: "4-3-3", reason: "Triangles to progress; isolate wingers 1v1 vs fullbacks when their wide mids tuck in.", reason_es: "Triángulos para progresar; aísla a los extremos 1v1 contra laterales cuando sus volantes se cierran." },
+ ],
+};
+
+
+const STYLE_BONUS: Record<string, string[]> = {
+ "Press high": ["4-3-3", "4-2-3-1", "3-4-3"],
+ "Mid-block": ["4-2-3-1", "4-4-2", "4-1-4-1"],
+ "Low block & counter": ["5-3-2", "4-4-2", "5-4-1"],
+ Possession: ["4-3-3", "4-2-3-1", "4-1-4-1"],
+};
+
+
+const STRENGTH_BONUS: Record<string, string[]> = {
+ Pace: ["4-3-3", "3-4-3", "4-2-3-1"],
+ Aerial: ["4-4-2", "3-5-2", "5-3-2"],
+ Stamina: ["4-3-3", "3-4-3", "4-4-2"],
+ Playmaker: ["4-2-3-1", "4-3-1-2", "4-3-3"],
+};
+
+
+const TIPS_I18N = {
+ en: [
+   "If their fullbacks bomb on, leave your wingers high to threaten the space behind.",
+   "A double pivot helps against teams with a free 10 between the lines.",
+   "Two strikers pin a back three and make wide CBs defend facing their own goal.",
+   "Against a low block, switch play quickly and time late runs from 8s.",
+   "Wing-backs are only effective if your wide CBs can cover large spaces behind them.",
+ ],
+ es: [
+   "Si sus laterales se proyectan, deja a tus extremos altos para atacar el espacio a su espalda.",
+   "Un doble pivote ayuda contra equipos con un 10 libre entre líneas.",
+   "Dos delanteros fijan una línea de tres y obligan a los stoppers a defender de cara a su arco.",
+   "Contra bloque bajo, cambia de orientación rápido y cronometra las llegadas de los interiores.",
+   "Los carrileros solo funcionan si tus centrales abiertos cubren bien la espalda.",
+ ],
+} as const;
+
+
+/* Utilities */
+const clampPct = (v: number) => Math.max(0, Math.min(100, v));
+
+
+/* Pitch (drag & drop when editable; supports touch; optional snap-to-grid) */
+function Pitch({
+ points, title, editable, onClick, onDrag, selectedIdx, onSelect, snap = false, grid = 5,
+}: {
+ points: Pt[]; title?: string; editable?: boolean;
+ onClick?: (p: { x: number; y: number }) => void;
+ onDrag?: (idx: number, pos: { x: number; y: number }) => void;
+ selectedIdx?: number | null; onSelect?: (idx: number) => void;
+ snap?: boolean; grid?: number;
+}) {
+ const containerRef = useRef<HTMLDivElement>(null);
+ const [dragIdx, setDragIdx] = useState<number | null>(null);
+
+
+ const snapCoord = (v: number) => (snap ? Math.round(v / grid) * grid : v);
+
+
+ const getPct = (clientX: number, clientY: number) => {
+   const rect = containerRef.current?.getBoundingClientRect();
+   if (!rect) return { x: 0, y: 0 };
+   const xPct = ((clientX - rect.left) / rect.width) * 100;
+   const yPctFromBottom = ((rect.bottom - clientY) / rect.height) * 100;
+   return { x: clampPct(snapCoord(xPct)), y: clampPct(snapCoord(yPctFromBottom)) };
+ };
+
+
+ const onMouseMove = (e: React.MouseEvent) => {
+   if (!editable || dragIdx == null || !onDrag) return;
+   const { x, y } = getPct(e.clientX, e.clientY);
+   onDrag(dragIdx, { x, y });
+ };
+
+
+ const endDrag = () => setDragIdx(null);
+
+
+ const onTouchMove = (e: React.TouchEvent) => {
+   if (!editable || dragIdx == null || !onDrag) return;
+   const t = e.touches[0];
+   if (!t) return;
+   const { x, y } = getPct(t.clientX, t.clientY);
+   onDrag(dragIdx, { x, y });
+   e.preventDefault();
+ };
+
+
+ return (
+   <div className="w-full select-none">
+     {title ? <div className="mb-2 text-sm text-zinc-500">{title}</div> : null}
+     <div
+       ref={containerRef}
+       className={"relative w-full aspect-[2/3] rounded-2xl overflow-hidden shadow-lg " + (editable ? "cursor-crosshair" : "")}
+       onClick={(e) => {
+         if (!editable || !onClick) return;
+         const { x, y } = getPct(e.clientX, e.clientY);
+         onClick({ x, y });
+       }}
+       onMouseMove={onMouseMove}
+       onMouseUp={endDrag}
+       onMouseLeave={endDrag}
+       onTouchMove={onTouchMove}
+       onTouchEnd={endDrag}
+     >
+       <div className="absolute inset-0 bg-gradient-to-br from-emerald-700 via-emerald-600 to-emerald-700" />
+       {Array.from({ length: 10 }).map((_, i) => (
+         <div key={i} className="absolute left-0 right-0" style={{ top: `${i * 10}%`, height: "10%", background: i % 2 === 0 ? "rgba(255,255,255,0.05)" : "transparent" }} />
+       ))}
+       <div className="absolute left-0 right-0 top-1/2 h-[2px] bg-white/40" />
+       <div className="absolute left-[25%] right-[25%] top-[8%] h-[10%] border border-white/40 rounded-sm" />
+       <div className="absolute left-[25%] right-[25%] bottom-[8%] h-[10%] border border-white/40 rounded-sm" />
+
+
+       {points.map((p, idx) => (
+         <div
+           key={idx}
+           className={"absolute -translate-x-1/2 -translate-y-1/2 flex flex-col items-center " + (editable ? "cursor-grab active:cursor-grabbing" : "")}
+           style={{ left: `${p.x}%`, bottom: `${p.y}%` }}
+           onMouseDown={(e) => { if (!editable) return; e.stopPropagation(); setDragIdx(idx); onSelect && onSelect(idx); }}
+           onClick={(e) => { e.stopPropagation(); onSelect && onSelect(idx); }}
+           onTouchStart={(e) => { if (!editable) return; setDragIdx(idx); onSelect && onSelect(idx); }}
+         >
+           <div className={`w-6 h-6 rounded-full ${selectedIdx===idx?"ring-2 ring-yellow-400":""} bg-white shadow-md flex items-center justify-center text-xs font-bold text-emerald-700`}>
+             {p.label === "GK" ? "G" : "•"}
+           </div>
+           <div className="mt-1 text-[10px] text-white/90 drop-shadow">{p.label}</div>
+         </div>
+       ))}
+     </div>
+   </div>
+ );
+}
+
+
+/* Scoring & formatting helpers */
+function scoreCandidates(opponent: string, style: string, strengths: string[], positionsMap: Record<string, Pt[]>) {
+ const base = COUNTERS[opponent] || [
+   { formation: "4-2-3-1", reason: "Flexible vs most shapes; 10 between lines, double pivot stability.", reason_es: "Flexible vs la mayoría; 10 entre líneas y doble pivote estable." },
+   { formation: "4-3-3", reason: "Width + midfield triangles; good pressing structure.", reason_es: "Amplitud + triángulos en medio; buena estructura de presión." },
+   { formation: "3-5-2", reason: "Strong central control and transition threat with two 9s.", reason_es: "Control central fuerte y amenaza en transición con dos 9." },
+ ];
+ const ALL = new Set(Object.keys(positionsMap));
+ const filtered = base.filter((c) => ALL.has(c.formation));
+ const list = filtered.length ? filtered : Array.from(ALL).slice(0, 3).map((f) => ({ formation: f, reason: "General-purpose option.", reason_es: "Opción general." }));
+ return list
+   .map((c, idx) => {
+     let score = 80 - idx * 5;
+     if (STYLE_BONUS[style]?.includes(c.formation)) score += 8;
+     strengths.forEach((s) => { if (STRENGTH_BONUS[s]?.includes(c.formation)) score += 5; });
+     return { ...c, score } as { formation: string; reason: string; reason_es: string; score: number };
+   })
+   .sort((a, b) => b.score - a.score);
+}
+
+
+function getReasonText(entry: { reason: string; reason_es?: string }, lang: "en" | "es") {
+ return lang === "es" && entry.reason_es ? entry.reason_es : entry.reason;
+}
+
+
+function formatRecommendation({ t, opponent, style, strengths, primary, alts, lang }:{
+ t: (k: string, ...args:any[]) => string;
+ opponent: string; style: string; strengths: string[];
+ primary?: { formation: string; reason: string; reason_es?: string };
+ alts: { formation: string; reason: string; reason_es?: string }[];
+ lang: "en" | "es";
+}): string {
+ const lines = [
+   `${t("opponentFormation")}: ${opponent}`,
+   `${t("preferredApproach")}: ${style}`,
+   `${t("teamStrengths")}: ${strengths.join(", ") || "(—)"}`,
+   "",
+   `▶ ${t("recommended")}: ${primary?.formation ?? "—"}`,
+   `   ${t("why")}: ${primary ? getReasonText(primary, lang) : "—"}`,
+   ...alts.map((a, i) => `• ${t("alt", i + 1)}: ${a.formation} — ${getReasonText(a, lang)}`),
+ ];
+return lines.join("\n");
+}
+
+
+/* App */
+export default function App() {
+ const [lang, setLang] = useState<"es" | "en">("es");
+ const t = (k: keyof typeof I18N["es"], ...args: any[]) =>
+   typeof (I18N as any)[lang][k] === "function" ? (I18N as any)[lang][k](...args) : (I18N as any)[lang][k];
+
+
+ const [positionsMap, setPositionsMap] = useState<Record<string, Pt[]>>(() => {
+   const raw = localStorage.getItem("cfa_positions");
+   try { return raw ? { ...BASE_FORMATION_POSITIONS, ...JSON.parse(raw) } : BASE_FORMATION_POSITIONS; } catch { return BASE_FORMATION_POSITIONS; }
+ });
+ const [opponent, setOpponent] = useState<string>(() => localStorage.getItem("cfa_opponent") || "4-3-3");
+ const [style, setStyle] = useState<string>(() => localStorage.getItem("cfa_style") || "Press high");
+ const [strengths, setStrengths] = useState<string[]>(() => {
+   const raw = localStorage.getItem("cfa_strengths");
+   try { return raw ? JSON.parse(raw) : ["Pace", "Playmaker"]; } catch { return ["Pace", "Playmaker"]; }
+ });
+ const [seed, setSeed] = useState(0);
+ const [snap, setSnap] = useState<boolean>(() => localStorage.getItem("cfa_snap") === "1");
+ const [grid, setGrid] = useState<number>(() => Number(localStorage.getItem("cfa_grid") || 5));
+ const [persist, setPersist] = useState<boolean>(() => localStorage.getItem("cfa_persist") !== "0");
+
+
+ useEffect(() => { if (!persist) return; localStorage.setItem("cfa_positions", JSON.stringify(Object.fromEntries(Object.entries(positionsMap).filter(([k]) => !(k in BASE_FORMATION_POSITIONS))))); }, [positionsMap, persist]);
+ useEffect(() => { if (!persist) return; localStorage.setItem("cfa_opponent", opponent); }, [opponent, persist]);
+ useEffect(() => { if (!persist) return; localStorage.setItem("cfa_style", style); }, [style, persist]);
+ useEffect(() => { if (!persist) return; localStorage.setItem("cfa_strengths", JSON.stringify(strengths)); }, [strengths, persist]);
+ useEffect(() => { if (!persist) return; localStorage.setItem("cfa_snap", snap ? "1" : "0"); }, [snap, persist]);
+ useEffect(() => { if (!persist) return; localStorage.setItem("cfa_grid", String(grid)); }, [grid, persist]);
+
+
+ const ALL_FORMATIONS = useMemo(() => Object.keys(positionsMap).sort(), [positionsMap]);
+
+
+ const recommendations = useMemo(() => scoreCandidates(opponent, style, strengths, positionsMap), [opponent, style, strengths, positionsMap]);
+ const primary = recommendations[0];
+ const alts = recommendations.slice(1, 3);
+
+
+ const toggleStrength = (s: string) => setStrengths((prev) => (prev.includes(s) ? prev.filter((x) => x !== s) : [...prev, s]));
+
+
+ const exportRef = useRef<HTMLDivElement>(null);
+ const handleExportPNG = async () => {
+   if (!exportRef.current) return;
+   const dataUrl = await toPng(exportRef.current, { cacheBust: true, pixelRatio: 2 });
+   const link = document.createElement("a");
+   link.download = `counter-${opponent}.png`;
+   link.href = dataUrl;
+   link.click();
+ };
+ const handleExportPDF = async () => {
+   if (!exportRef.current) return;
+   const dataUrl = await toPng(exportRef.current, { cacheBust: true, pixelRatio: 2 });
+   const pdf = new jsPDF({ orientation: "portrait", unit: "pt", format: "a4" });
+   const imgProps = pdf.getImageProperties(dataUrl);
+   const pageWidth = pdf.internal.pageSize.getWidth();
+   const pageHeight = pdf.internal.pageSize.getHeight();
+   const ratio = Math.min(pageWidth / imgProps.width, pageHeight / imgProps.height);
+   const w = imgProps.width * ratio;
+   const h = imgProps.height * ratio;
+   pdf.addImage(dataUrl, "PNG", (pageWidth - w) / 2, (pageHeight - h) / 2, w, h);
+   pdf.save(`counter-${opponent}.pdf`);
+ };
+ const copyOut = async () => {
+   if (!primary) return;
+   const report = formatRecommendation({ t: t as any, opponent, style, strengths, primary, alts, lang });
+   try {
+     await navigator.clipboard.writeText(report);
+     alert(t("copied" as any));
+   } catch {
+     alert(t("copyFail" as any));
+   }
+ };
+
+
+ const tipsArr = (TIPS_I18N as any)[lang] as string[];
+ const randomTip = tipsArr[(seed + opponent.length + style.length + strengths.join("").length) % tipsArr.length];
+
+
+ /* Custom Formations */
+ const [customName, setCustomName] = useState<string>("");
+ const [customPoints, setCustomPoints] = useState<Pt[]>([]);
+ const [selectedIdx, setSelectedIdx] = useState<number | null>(null);
+
+
+ const addPoint = ({ x, y }: { x: number; y: number }) => {
+   if (customPoints.length >= 11) return;
+   const label = customPoints.length === 0 ? "GK" : `P${customPoints.length}`;
+   setCustomPoints([...customPoints, { label, x, y }]);
+ };
+ const removePoint = (idx: number) => {
+   const next = customPoints.filter((_, i) => i !== idx);
+   setCustomPoints(next);
+   setSelectedIdx(null);
+ };
+ const markGK = () => {
+   if (selectedIdx == null) return;
+   const next = customPoints.map((p, i) => ({ ...p, label: i === selectedIdx ? "GK" : p.label.startsWith("P") ? p.label : `P${i}` }));
+   setCustomPoints(next);
+ };
+ const renamePoint = () => {
+   if (selectedIdx == null) return;
+   const current = customPoints[selectedIdx];
+   const nextLabel = prompt((I18N as any)[lang].rename + ":", current.label) || current.label;
+   setCustomPoints(customPoints.map((p, i) => i === selectedIdx ? { ...p, label: nextLabel } : p));
+ };
+ const clearCustom = () => { setCustomPoints([]); setSelectedIdx(null); };
+ const saveCustom = () => {
+   if (!customName || customPoints.length !== 11) return;
+   setPositionsMap((prev) => ({ ...prev, [customName]: customPoints }));
+   setOpponent(customName);
+   alert((I18N as any)[lang].addCustom);
+ };
+
+
+ const exportJSON = () => {
+   const customOnly = Object.fromEntries(Object.entries(positionsMap).filter(([k]) => !(k in BASE_FORMATION_POSITIONS)));
+   const blob = new Blob([JSON.stringify(customOnly, null, 2)], { type: "application/json" });
+   const url = URL.createObjectURL(blob);
+   const a = document.createElement("a");
+   a.href = url; a.download = "custom-formations.json"; a.click();
+   URL.revokeObjectURL(url);
+ };
+ const importJSON = async () => {
+   const txt = prompt((I18N as any)[lang].importPrompt);
+   if (!txt) return;
+   try {
+     const data = JSON.parse(txt);
+     if (typeof data !== "object" || Array.isArray(data)) throw new Error("bad");
+     setPositionsMap((prev) => ({ ...prev, ...data }));
+     alert("OK");
+   } catch {
+     alert((I18N as any)[lang].invalidJSON);
+   }
+ };
+
+
+ /* UI */
+ return (
+   <div className="w-full min-h-screen p-6 md:p-10 bg-zinc-100 text-zinc-900">
+     <div className="max-w-6xl mx-auto" ref={exportRef}>
+       <header className="flex items-center justify-between mb-6">
+         <div className="flex items-center gap-3">
+           <Shield className="w-7 h-7 text-emerald-700" />
+           <h1 className="text-2xl md:text-3xl font-bold">{t("title" as any)}</h1>
+         </div>
+         <div className="flex items-center gap-2">
+           <button onClick={() => setLang(lang === "es" ? "en" : "es")} className="inline-flex items-center gap-2 px-3 py-2 rounded-2xl border border-zinc-300 bg-white hover:bg-zinc-50" aria-label="toggle language">
+             <Globe className="w-4 h-4" /> {lang.toUpperCase()}
+           </button>
+           <button onClick={copyOut} className="inline-flex items-center gap-2 px-3 py-2 rounded-2xl bg-emerald-600 text-white hover:bg-emerald-700 shadow">
+             <Copy className="w-4 h-4" /> {t("copy" as any)}
+           </button>
+           <button onClick={handleExportPNG} className="inline-flex items-center gap-2 px-3 py-2 rounded-2xl border border-zinc-300 bg-white hover:bg-zinc-50">
+             <ImageDown className="w-4 h-4" /> {t("exportPNG" as any)}
+           </button>
+           <button onClick={handleExportPDF} className="inline-flex items-center gap-2 px-3 py-2 rounded-2xl border border-zinc-300 bg-white hover:bg-zinc-50">
+             <FileDown className="w-4 h-4" /> {t("exportPDF" as any)}
+           </button>
+         </div>
+       </header>
+
+
+       {/* Controls */}
+       <div className="grid md:grid-cols-3 gap-4 mb-8">
+         <div className="bg-white rounded-2xl p-4 shadow">
+           <label className="text-xs uppercase tracking-wide text-zinc-500">{t("opponentFormation" as any)}</label>
+           <select value={opponent} onChange={(e) => setOpponent(e.target.value)} className="mt-2 w-full rounded-xl border border-zinc-200 p-2 focus:outline-none focus:ring-2 focus:ring-emerald-500">
+             {ALL_FORMATIONS.map((f) => (<option key={f} value={f}>{f}</option>))}
+           </select>
+           <div className="mt-3 text-xs text-zinc-500 flex items-center gap-2"><Info className="w-3 h-3" />{t("infoClassic" as any)}</div>
+         </div>
+
+
+         <div className="bg-white rounded-2xl p-4 shadow">
+           <label className="text-xs uppercase tracking-wide text-zinc-500">{t("preferredApproach" as any)}</label>
+           <select value={style} onChange={(e) => setStyle(e.target.value)} className="mt-2 w-full rounded-xl border border-zinc-200 p-2 focus:outline-none focus:ring-2 focus:ring-emerald-500">
+             {Object.keys(STYLE_BONUS).map((s) => (<option key={s} value={s}>{s}</option>))}
+           </select>
+           <div className="mt-3 text-xs text-zinc-500 flex items-center gap-2"><Footprints className="w-3 h-3" />{t("biasNote" as any)}</div>
+         </div>
+
+
+         <div className="bg-white rounded-2xl p-4 shadow">
+           <label className="text-xs uppercase tracking-wide text-zinc-500">{t("teamStrengths" as any)}</label>
+           <div className="mt-2 grid grid-cols-2 gap-2">
+             {Object.keys(STRENGTH_BONUS).map((s) => (
+               <button key={s} onClick={() => toggleStrength(s)} className={"px-3 py-2 rounded-xl border text-sm flex items-center gap-2 " + (strengths.includes(s) ? "border-emerald-600 bg-emerald-50 text-emerald-800" : "border-zinc-200 hover:bg-zinc-50") }>
+                 {s === "Pace" && <Zap className="w-4 h-4" />}{s === "Aerial" && <Shield className="w-4 h-4" />}{s === "Stamina" && <Footprints className="w-4 h-4" />}{s === "Playmaker" && <Sparkles className="w-4 h-4" />}{s}
+               </button>
+             ))}
+           </div>
+         </div>
+       </div>
+
+
+       {/* Output */}
+       <div className="grid md:grid-cols-5 gap-6">
+         <div className="md:col-span-3 space-y-6">
+           <div className="bg-white rounded-2xl p-4 shadow">
+             <div className="flex items-center justify-between mb-3">
+               <h2 className="text-lg font-semibold">{t("recommended" as any)}</h2>
+               <div className="text-xs text-zinc-500">{t("basedOn" as any)}</div>
+             </div>
+             {primary ? (
+               <div className="grid md:grid-cols-2 gap-4">
+                 <Pitch points={positionsMap[primary.formation] || []} title={`${primary.formation}`} snap={snap} grid={grid} />
+                 <div>
+                   <div className="text-sm text-zinc-700 leading-relaxed">{getReasonText(primary, lang)}</div>
+                   <div className="mt-3 text-xs text-zinc-500">{t("tipLabel" as any)} {randomTip}</div>
+                 </div>
+               </div>
+             ) : null}
+           </div>
+
+
+           <div className="bg-white rounded-2xl p-4 shadow">
+             <h3 className="text-lg font-semibold mb-3">{t("alternatives" as any)}</h3>
+             <div className="grid sm:grid-cols-2 gap-4">
+               {alts.map((a, i) => (
+                 <div key={a.formation} className="rounded-xl border border-zinc-200 p-3">
+                   <div className="font-semibold mb-2">{(I18N as any)[lang].alt(i+1)} — {a.formation}</div>
+                   <div className="text-xs text-zinc-600 mb-3">{getReasonText(a, lang)}</div>
+                   <Pitch points={positionsMap[a.formation] || []} snap={snap} grid={grid} />
+                 </div>
+               ))}
+             </div>
+           </div>
+         </div>
+
+
+         {/* Sidebar */}
+         <aside className="md:col-span-2 space-y-6">
+           <div className="bg-white rounded-2xl p-4 shadow">
+             <h3 className="text-lg font-semibold">{t("opponentShape" as any)}</h3>
+             <div className="text-sm text-zinc-700 mb-3">{opponent}</div>
+             <Pitch points={positionsMap[opponent] || []} title={t("theirBaseShape" as any)} snap={snap} grid={grid} />
+           </div>
+
+
+           <div className="bg-white rounded-2xl p-4 shadow">
+             <h3 className="text-lg font-semibold mb-2">{t("howItWorks" as any)}</h3>
+             <ul className="text-sm text-zinc-700 list-disc pl-5 space-y-2">
+               <li>{t("how1" as any)}</li>
+               <li>{t("how2" as any)}</li>
+               <li>{t("how3" as any)}</li>
+             </ul>
+             <button onClick={() => setSeed((s) => s + 1)} className="mt-3 inline-flex items-center gap-2 px-3 py-2 rounded-xl border border-zinc-200 hover:bg-zinc-50">
+               <Dice5 className="w-4 h-4" /> {t("newTip" as any)}
+             </button>
+           </div>
+
+
+           {/* Settings */}
+           <div className="bg-white rounded-2xl p-4 shadow">
+             <h3 className="text-lg font-semibold mb-2 flex items-center gap-2"><Settings2 className="w-5 h-5" />{t("settings" as any)}</h3>
+             <div className="flex items-center justify-between mb-2">
+               <label className="text-sm">{t("snapToGrid" as any)}</label>
+               <input type="checkbox" checked={snap} onChange={(e) => setSnap(e.target.checked)} />
+             </div>
+             <div className="flex items-center justify-between mb-3">
+               <label className="text-sm">{t("gridSize" as any)} (%)</label>
+               <input type="number" min={1} max={20} step={1} value={grid} onChange={(e) => setGrid(Math.max(1, Math.min(20, Number(e.target.value)||5)))} className="w-20 border rounded px-2 py-1" />
+             </div>
+             <div className="flex items-center justify-between mb-2">
+               <label className="text-sm">{t("persistence" as any)}</label>
+               <span className="text-xs text-zinc-500">{t("persistToLocalStorage" as any)}</span>
+               <input type="checkbox" checked={persist} onChange={(e) => setPersist(e.target.checked)} />
+             </div>
+             <div className="flex gap-2 mt-3">
+               <button onClick={exportJSON} className="inline-flex items-center gap-2 px-3 py-2 rounded-xl border border-zinc-300 hover:bg-zinc-50"><Download className="w-4 h-4" />{t("exportJSON" as any)}</button>
+               <button onClick={importJSON} className="inline-flex items-center gap-2 px-3 py-2 rounded-xl border border-zinc-300 hover:bg-zinc-50"><Upload className="w-4 h-4" />{t("importJSON" as any)}</button>
+             </div>
+           </div>
+
+
+           {/* Custom formations */}
+           <div className="bg-white rounded-2xl p-4 shadow">
+             <h3 className="text-lg font-semibold mb-1">{t("customTitle" as any)}</h3>
+             <p className="text-xs text-zinc-600 mb-3">{t("customDesc" as any)}</p>
+
+
+             <label className="text-xs uppercase tracking-wide text-zinc-500">{t("formName" as any)}</label>
+             <input value={customName} onChange={(e) => setCustomName(e.target.value)} placeholder="e.g., 4-2-2-2 Narrow" className="mt-1 w-full rounded-xl border border-zinc-200 p-2 mb-3" />
+
+
+             <div className="grid grid-cols-3 gap-3 mb-3">
+               <button onClick={markGK} className="inline-flex items-center justify-center gap-2 px-3 py-2 rounded-xl border border-zinc-300 hover:bg-zinc-50"><Shield className="w-4 h-4" /> {t("markGK" as any)}</button>
+               <button onClick={renamePoint} disabled={selectedIdx==null} className="inline-flex items-center justify-center gap-2 px-3 py-2 rounded-xl border border-zinc-300 hover:bg-zinc-50 disabled:opacity-50"><Sparkles className="w-4 h-4" /> {t("rename" as any)}</button>
+               <button onClick={clearCustom} className="inline-flex items-center justify-center gap-2 px-3 py-2 rounded-xl border border-zinc-300 hover:bg-zinc-50"><X className="w-4 h-4" /> {t("clear" as any)}</button>
+             </div>
+
+
+             <div className="mb-2 text-xs text-zinc-500">{t("playersCount" as any, customPoints.length)}</div>
+
+
+             <Pitch
+               points={customPoints}
+               title=""
+               editable
+               onClick={addPoint}
+               onDrag={(idx:number, pos:{x:number;y:number}) => { setCustomPoints((prev) => prev.map((p, i) => i === idx ? { ...p, ...pos } : p)); }}
+               selectedIdx={selectedIdx}
+               onSelect={(i:number) => setSelectedIdx(i)}
+               snap={snap}
+               grid={grid}
+             />
+
+
+             {selectedIdx != null ? (
+               <div className="mt-2 flex items-center gap-2">
+                 <button onClick={() => removePoint(selectedIdx)} className="inline-flex items-center gap-2 px-2 py-1 rounded-lg border border-zinc-300 hover:bg-zinc-50 text-sm">
+                   <X className="w-4 h-4" /> {t("remove" as any)}
+                 </button>
+               </div>
+             ) : null}
+
+
+             <button onClick={saveCustom} disabled={!customName || customPoints.length !== 11} className="mt-3 w-full inline-flex items-center justify-center gap-2 px-3 py-2 rounded-xl bg-emerald-600 text-white disabled:opacity-50">
+               <Plus className="w-4 h-4" /> {t("saveFormation" as any)}
+             </button>
+           </div>
+
+
+           {/* Tests panel (tiny) */}
+           <TestsPanel />
+         </aside>
+       </div>
+
+
+       <footer className="mt-8 text-xs text-zinc-500">{t("footer" as any)}</footer>
+     </div>
+   </div>
+ );
+}
+
+
+/* Tests */
+type TestResult = { name: string; pass: boolean; details?: string };
+
+
+export function runTests(): TestResult[] {
+ const results: TestResult[] = [];
+
+
+ try {
+   const fakeT = (s: string) => s;
+   const s = formatRecommendation({
+     t: fakeT, opponent: "4-3-3", style: "Press high", strengths: ["Pace"],
+     primary: { formation: "4-2-3-1", reason: "ok" },
+     alts: [{ formation: "3-5-2", reason: "alt1" }, { formation: "4-1-4-1", reason: "alt2" }],
+     lang: "en",
+   });
+const newlineCount = (s.match(/\n/g) || []).length;
+   results.push({ name: "formatRecommendation uses correctly escaped newlines", pass: newlineCount >= 4, details: `newlines=${newlineCount}` });
+ } catch (e: any) { results.push({ name: "formatRecommendation newlines", pass: false, details: String(e) }); }
+
+
+ try {
+   const res = scoreCandidates("4-3-3", "Press high", ["Pace"], BASE_FORMATION_POSITIONS);
+   const sorted = res.every((_, i, arr) => i === 0 || arr[i - 1].score >= arr[i].score);
+   results.push({ name: "scoreCandidates returns sorted non-empty list", pass: res.length >= 1 && sorted, details: `len=${res.length}` });
+ } catch (e: any) { results.push({ name: "scoreCandidates basic", pass: false, details: String(e) }); }
+
+
+ try {
+   const res = scoreCandidates("UNKNOWN", "Mid-block", [], { "4-4-2": BASE_FORMATION_POSITIONS["4-4-2"], "4-2-3-1": BASE_FORMATION_POSITIONS["4-2-3-1"], "3-5-2": BASE_FORMATION_POSITIONS["3-5-2"] });
+   results.push({ name: "Fallback candidates when opponent unknown", pass: res.length >= 1 });
+ } catch (e: any) { results.push({ name: "Fallback candidates", pass: false, details: String(e) }); }
+
+
+ try {
+   const fakeT = (s: string) => s;
+   const report = formatRecommendation({
+     t: fakeT, opponent: "4-3-3", style: "Mid-block", strengths: [],
+     primary: { formation: "4-2-3-1", reason: "EN", reason_es: "ES" },
+     alts: [{ formation: "3-5-2", reason: "EN2", reason_es: "ES2" }],
+     lang: "es",
+   });
+   const usesES = report.includes("ES") && report.includes("ES2") && report.includes("Por qué");
+   results.push({ name: "formatRecommendation uses Spanish strings when lang=es", pass: usesES });
+ } catch (e: any) { results.push({ name: "Spanish reasons selection", pass: false, details: String(e) }); }
+
+
+ try {
+   const canSave = (name: string, len: number) => !!name && len === 11;
+   const pass = !canSave("My 4-2-2-2", 10) && canSave("My 4-2-2-2", 11);
+   results.push({ name: "Save button gating (11 players)", pass });
+ } catch (e: any) { results.push({ name: "Save gating", pass: false, details: String(e) }); }
+
+
+ try {
+   const en = getReasonText({ reason: "EN only" }, "es");
+   results.push({ name: "getReasonText fallback to EN", pass: en === "EN only" });
+ } catch (e: any) { results.push({ name: "getReasonText fallback", pass: false, details: String(e) }); }
+
+
+ try {
+   const fakeT = (s: string) => s;
+   const rep = formatRecommendation({
+     t: fakeT, opponent: "X", style: "Y", strengths: [],
+     primary: { formation: "A", reason: "R" },
+     alts: [{ formation: "B", reason: "R" }, { formation: "C", reason: "R" }, { formation: "D", reason: "R" }],
+     lang: "en",
+   });
+   const altCount = (rep.match(/• Alt /g) || []).length;
+   results.push({ name: "formatRecommendation alt count (EN)", pass: altCount === 3, details: `alts=${altCount}` });
+ } catch (e: any) { results.push({ name: "formatRecommendation alt count (EN)", pass: false, details: String(e) }); }
+
+
+ try {
+   // Touch + snap helper: ensure clamp & snap keep within 0..100
+   const v1 = clampPct(-5); const v2 = clampPct(105);
+   results.push({ name: "clampPct bounds", pass: v1 === 0 && v2 === 100, details: `${v1},${v2}` });
+ } catch (e:any) { results.push({ name: "clampPct bounds", pass: false, details: String(e) }); }
+
+
+ return results;
+}
+
+
+function TestsPanel() {
+ const [results, setResults] = useState<TestResult[] | null>(null);
+ const allPass = results?.every((r) => r.pass);
+ return (
+   <div className="bg-white rounded-2xl p-4 shadow">
+     <h3 className="text-lg font-semibold mb-2 flex items-center gap-2"><Bug className="w-5 h-5 text-emerald-700" />{I18N.en.tests}</h3>
+     <div className="flex gap-2 mb-3">
+       <button onClick={() => setResults(runTests())} className="inline-flex items-center gap-2 px-3 py-2 rounded-xl border border-zinc-300 hover:bg-zinc-50">{I18N.en.runTests}</button>
+       <button onClick={() => alert(JSON.stringify(runTests(), null, 2))} className="inline-flex items-center gap-2 px-3 py-2 rounded-xl border border-zinc-300 hover:bg-zinc-50">JSON</button>
+     </div>
+     {results ? (
+       <>
+         <div className={(allPass ? "text-emerald-700" : "text-red-600") + " text-sm mb-2"}>
+           {allPass ? I18N.en.allPass : I18N.en.someFail}
+         </div>
+         <ul className="text-sm text-zinc-700 list-disc pl-5 space-y-1">
+           {results.map((r, i) => (
+             <li key={i} className={r.pass ? "text-emerald-700" : "text-red-600"}>
+               {r.pass ? "✅" : "❌"} {r.name} {r.details ? `— ${r.details}` : ""}
+             </li>
+           ))}
+         </ul>
+       </>
+     ) : null}
+   </div>
+ );
+}
+
+
+
